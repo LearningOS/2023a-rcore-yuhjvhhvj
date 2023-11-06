@@ -36,11 +36,6 @@ pub struct TaskControlBlock {
 }
 
 impl TaskControlBlock {
-    ///
-    pub fn get_unmap(&mut self, index: usize) {
-        self.memory_set.areas[index].unmap(&mut self.memory_set.page_table);
-        self.memory_set.areas.remove(index);
-    }
     /// get the trap context
     pub fn get_trap_cx(&self) -> &'static mut TrapContext {
         self.trap_cx_ppn.get_mut()

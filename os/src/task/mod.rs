@@ -196,7 +196,9 @@ impl TaskManager {
             (<usize as Into<crate::mm::VirtAddr>>::into(_start + _len)).ceil();
         let vpn_range = crate::mm::address::VPNRange::new(start_vpn, end_vpn);
         for vpn in vpn_range {
-            if let Some(_) = inner.tasks[cur].memory_set.translate(vpn.into()) {
+            if inner.tasks[cur].memory_set.translate(vpn).is_some()
+                && inner.tasks[cur].memory_set.translate(vpn).unwrap().bits != 0
+            {
                 return -1;
             }
         }
@@ -216,23 +218,36 @@ impl TaskManager {
         };
         let mut inner = self.inner.exclusive_access();
         let cur = inner.current_task;
-        //let len: usize = ((_len / crate::config::PAGE_SIZE) + 1) * crate::config::PAGE_SIZE;
-        //
         let start_vpn: crate::mm::VirtPageNum =
             (<usize as Into<crate::mm::VirtAddr>>::into(_start)).floor();
         let end_vpn: crate::mm::VirtPageNum =
             (<usize as Into<crate::mm::VirtAddr>>::into(_start + _len)).ceil();
         let vpn_range = crate::mm::address::VPNRange::new(start_vpn, end_vpn);
         //检查是否无映射
+        let mut id = 0;
+        let mut flag = -1;
         for (index, area) in inner.tasks[cur].memory_set.areas.iter().enumerate() {
             if area.vpn_range.get_start() == vpn_range.get_start()
                 && area.vpn_range.get_end() == vpn_range.get_end()
             {
-                inner.tasks[cur].get_unmap(index);
-                return 0;
+                id = index;
+                flag = 0;
             }
         }
-        return -1;
+        if flag == -1 {
+            return -1;
+        }
+        let ms: &mut crate::mm::MemorySet = &mut inner.tasks[cur].memory_set;
+        ms.areas[id].unmap(&mut ms.page_table);
+        inner.tasks[cur].memory_set.areas.remove(id);
+
+        // for vpn in vpn_range {
+        //     if inner.tasks[cur].memory_set.translate(vpn).is_some() {
+        //         return -1;
+        //     }
+        // }
+
+        return 0;
     }
 }
 
