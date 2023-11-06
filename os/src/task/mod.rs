@@ -14,6 +14,9 @@ mod switch;
 #[allow(clippy::module_inception)]
 mod task;
 
+//
+// use VPNRange;
+//
 use crate::loader::{get_app_data, get_num_app};
 use crate::sync::UPSafeCell;
 use crate::trap::TrapContext;
@@ -79,6 +82,8 @@ impl TaskManager {
         let mut inner = self.inner.exclusive_access();
         let next_task = &mut inner.tasks[0];
         next_task.task_status = TaskStatus::Running;
+        // ch4:start_time
+        next_task.start_time = crate::timer::get_time_ms();
         let next_task_cx_ptr = &next_task.task_cx as *const TaskContext;
         drop(inner);
         let mut _unused = TaskContext::zero_init();
@@ -140,6 +145,8 @@ impl TaskManager {
             let mut inner = self.inner.exclusive_access();
             let current = inner.current_task;
             inner.tasks[next].task_status = TaskStatus::Running;
+            // ch4:assign start_time
+            inner.tasks[next].start_time = crate::timer::get_time_ms();
             inner.current_task = next;
             let current_task_cx_ptr = &mut inner.tasks[current].task_cx as *mut TaskContext;
             let next_task_cx_ptr = &inner.tasks[next].task_cx as *const TaskContext;
@@ -152,6 +159,80 @@ impl TaskManager {
         } else {
             panic!("All applications completed!");
         }
+    }
+
+    /// 增加计数
+    fn increase_current_syscall_count(&self, s_id: usize) {
+        let mut inner = self.inner.exclusive_access();
+        let ict = inner.current_task;
+        inner.tasks[ict].syscall_times[s_id] += 1;
+    }
+
+    /// 获取TCB信息
+    fn get_current_task_info(&self) -> (usize, [u32; crate::config::MAX_SYSCALL_NUM], TaskStatus) {
+        let inner = self.inner.exclusive_access();
+        (
+            inner.tasks[inner.current_task].start_time,
+            inner.tasks[inner.current_task].syscall_times,
+            inner.tasks[inner.current_task].task_status,
+        )
+    }
+
+    /// MAP
+    fn get_mm(&self, _start: usize, _len: usize, _port: usize) -> isize {
+        //检查起始地址是否对齐
+        if (_start % crate::config::PAGE_SIZE) != 0 {
+            return -1;
+        };
+        //设置标志位
+        let mut permission = crate::mm::MapPermission::from_bits((_port as u8) << 1).unwrap();
+        permission.set(crate::mm::MapPermission::U, true);
+        //TCB
+        let mut inner = self.inner.exclusive_access();
+        let cur = inner.current_task;
+        let start_vpn: crate::mm::VirtPageNum =
+            (<usize as Into<crate::mm::VirtAddr>>::into(_start)).floor();
+        let end_vpn: crate::mm::VirtPageNum =
+            (<usize as Into<crate::mm::VirtAddr>>::into(_start + _len)).ceil();
+        let vpn_range = crate::mm::address::VPNRange::new(start_vpn, end_vpn);
+        for vpn in vpn_range {
+            if let Some(_) = inner.tasks[cur].memory_set.translate(vpn.into()) {
+                return -1;
+            }
+        }
+        inner.tasks[cur].memory_set.insert_framed_area(
+            _start.into(),
+            (_start + _len).into(),
+            permission,
+        );
+        return 0;
+    }
+
+    ///unmap
+    fn get_unmap(&self, _start: usize, _len: usize) -> isize {
+        //检查起始地址是否对齐
+        if (_start % crate::config::PAGE_SIZE) != 0 {
+            return -1;
+        };
+        let mut inner = self.inner.exclusive_access();
+        let cur = inner.current_task;
+        //let len: usize = ((_len / crate::config::PAGE_SIZE) + 1) * crate::config::PAGE_SIZE;
+        //
+        let start_vpn: crate::mm::VirtPageNum =
+            (<usize as Into<crate::mm::VirtAddr>>::into(_start)).floor();
+        let end_vpn: crate::mm::VirtPageNum =
+            (<usize as Into<crate::mm::VirtAddr>>::into(_start + _len)).ceil();
+        let vpn_range = crate::mm::address::VPNRange::new(start_vpn, end_vpn);
+        //检查是否无映射
+        for (index, area) in inner.tasks[cur].memory_set.areas.iter().enumerate() {
+            if area.vpn_range.get_start() == vpn_range.get_start()
+                && area.vpn_range.get_end() == vpn_range.get_end()
+            {
+                inner.tasks[cur].get_unmap(index);
+                return 0;
+            }
+        }
+        return -1;
     }
 }
 
@@ -201,4 +282,27 @@ pub fn current_trap_cx() -> &'static mut TrapContext {
 /// Change the current 'Running' task's program break
 pub fn change_program_brk(size: i32) -> Option<usize> {
     TASK_MANAGER.change_current_program_brk(size)
+}
+
+/// 增加计数
+pub fn increase_syscall_count(syscall_id: usize) {
+    if syscall_id >= crate::config::MAX_SYSCALL_NUM {
+        return;
+    }
+    TASK_MANAGER.increase_current_syscall_count(syscall_id);
+}
+
+/// 获取信息
+pub fn get_current_task_info() -> (usize, [u32; crate::config::MAX_SYSCALL_NUM], TaskStatus) {
+    TASK_MANAGER.get_current_task_info()
+}
+
+/// 获取内存
+pub fn get_mm(_start: usize, _len: usize, _port: usize) -> isize {
+    TASK_MANAGER.get_mm(_start, _len, _port)
+}
+
+/// 销毁已分配内存
+pub fn get_unmap(_start: usize, _len: usize) -> isize {
+    TASK_MANAGER.get_unmap(_start, _len)
 }

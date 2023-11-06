@@ -28,9 +28,19 @@ pub struct TaskControlBlock {
 
     /// Program break
     pub program_brk: usize,
+
+    ///第一次运行时间
+    pub start_time: usize,
+    ///系统调用次数
+    pub syscall_times: [u32; crate::config::MAX_SYSCALL_NUM],
 }
 
 impl TaskControlBlock {
+    ///
+    pub fn get_unmap(&mut self, index: usize) {
+        self.memory_set.areas[index].unmap(&mut self.memory_set.page_table);
+        self.memory_set.areas.remove(index);
+    }
     /// get the trap context
     pub fn get_trap_cx(&self) -> &'static mut TrapContext {
         self.trap_cx_ppn.get_mut()
@@ -63,6 +73,8 @@ impl TaskControlBlock {
             base_size: user_sp,
             heap_bottom: user_sp,
             program_brk: user_sp,
+            start_time: 1000 as usize,
+            syscall_times: [0 as u32; crate::config::MAX_SYSCALL_NUM],
         };
         // prepare TrapContext in user space
         let trap_cx = task_control_block.get_trap_cx();

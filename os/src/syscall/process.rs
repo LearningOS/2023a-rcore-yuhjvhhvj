@@ -43,28 +43,64 @@ pub fn sys_yield() -> isize {
 /// HINT: What if [`TimeVal`] is splitted by two pages ?
 pub fn sys_get_time(_ts: *mut TimeVal, _tz: usize) -> isize {
     trace!("kernel: sys_get_time");
-    -1
+    let us = crate::timer::get_time_us();
+    let bufs = crate::mm::translated_byte_buffer(
+        crate::task::current_user_token(),
+        _ts as *const u8,
+        core::mem::size_of::<TimeVal>(),
+    );
+    let time_val = TimeVal {
+        sec: us / 1_000_000,
+        usec: us % 1_000_000,
+    };
+    let mut ptr = &time_val as *const _ as *const u8;
+    for buf in bufs {
+        unsafe {
+            ptr.copy_to(buf.as_mut_ptr(), buf.len());
+            ptr = ptr.add(buf.len());
+        }
+    }
+    0
 }
 
 /// YOUR JOB: Finish sys_task_info to pass testcases
 /// HINT: You might reimplement it with virtual memory management.
 /// HINT: What if [`TaskInfo`] is splitted by two pages ?
 pub fn sys_task_info(_ti: *mut TaskInfo) -> isize {
-    trace!("kernel: sys_task_info NOT IMPLEMENTED YET!");
-    -1
+    trace!("kernel: sys_task_info");
+    let (time, syscall_times, task_status) = crate::task::get_current_task_info();
+    let taskinfo = TaskInfo {
+        status: task_status,
+        syscall_times: syscall_times,
+        time: time,
+    };
+    let bufs = crate::mm::translated_byte_buffer(
+        crate::task::current_user_token(),
+        _ti as *const u8,
+        core::mem::size_of::<TaskInfo>(),
+    );
+    let mut ptr = &taskinfo as *const _ as *const u8;
+    for buf in bufs {
+        unsafe {
+            ptr.copy_to(buf.as_mut_ptr(), buf.len());
+            ptr = ptr.add(buf.len());
+        }
+    }
+    0
 }
 
 // YOUR JOB: Implement mmap.
 pub fn sys_mmap(_start: usize, _len: usize, _port: usize) -> isize {
-    trace!("kernel: sys_mmap NOT IMPLEMENTED YET!");
-    -1
+    trace!("kernel: sys_mmap");
+    crate::task::get_mm(_start, _len, _port)
 }
 
 // YOUR JOB: Implement munmap.
 pub fn sys_munmap(_start: usize, _len: usize) -> isize {
-    trace!("kernel: sys_munmap NOT IMPLEMENTED YET!");
-    -1
+    trace!("kernel: sys_munmap");
+    crate::task::get_unmap(_start, _len)
 }
+
 /// change data segment size
 pub fn sys_sbrk(size: i32) -> isize {
     trace!("kernel: sys_sbrk");
