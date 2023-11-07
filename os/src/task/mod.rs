@@ -184,6 +184,9 @@ impl TaskManager {
         if (_start % crate::config::PAGE_SIZE) != 0 {
             return -1;
         };
+        if _port != 1 && _port != 2 && _port != 3 {
+            return -1;
+        }
         //设置标志位
         let mut permission = crate::mm::MapPermission::from_bits((_port as u8) << 1).unwrap();
         permission.set(crate::mm::MapPermission::U, true);
@@ -240,13 +243,6 @@ impl TaskManager {
         let ms: &mut crate::mm::MemorySet = &mut inner.tasks[cur].memory_set;
         ms.areas[id].unmap(&mut ms.page_table);
         inner.tasks[cur].memory_set.areas.remove(id);
-
-        // for vpn in vpn_range {
-        //     if inner.tasks[cur].memory_set.translate(vpn).is_some() {
-        //         return -1;
-        //     }
-        // }
-
         return 0;
     }
 }
