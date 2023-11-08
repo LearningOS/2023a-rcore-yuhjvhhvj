@@ -55,7 +55,38 @@ lazy_static! {
 pub fn run_tasks() {
     loop {
         let mut processor = PROCESSOR.exclusive_access();
-        if let Some(task) = fetch_task() {
+        let end = crate::task::manager::get_task_sum_in_ready();
+        if end != 0
+        // if let Some(task) = fetch_task()
+        {
+            let mut task = fetch_task().unwrap();
+            let task_stride = task.inner_exclusive_access().task_stride;
+            for _ in 1..end {
+                let task2 = fetch_task().unwrap();
+                let task_stride2 = task.inner_exclusive_access().task_stride;
+                if task_stride2 < task_stride {
+                    crate::task::manager::add_task(task);
+                    task = task2;
+                } else {
+                    crate::task::manager::add_task(task2);
+                }
+            }
+            // println!("end");
+            // let mut task;
+            // if end == 1 {
+            //     task = fetch_task().unwrap();
+            // } else {
+            //     task = fetch_task().unwrap();
+            //     let task_inner = task.inner_exclusive_access().task_stride;
+            //     for _ in 1..end {
+            //         let task_1 = fetch_task().unwrap();
+            //         let task_1_inner = task_1.inner_exclusive_access().task_stride;
+            //         if task_1_inner <= task_inner {
+            //             crate::task::manager::add_task(task);
+            //             task = task_1;
+            //         }
+            //     }
+            // }
             let idle_task_cx_ptr = processor.get_idle_task_cx_ptr();
             // access coming task TCB exclusively
             let mut task_inner = task.inner_exclusive_access();
